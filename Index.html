@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Real World Map Explorer</title>
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+
+<style>
+*{
+  box-sizing:border-box;
+}
+
+html,body{
+  margin:0;
+  padding:0;
+  width:100%;
+  height:100%;
+  font-family:Arial,sans-serif;
+}
+
+#map{
+  width:100%;
+  height:100vh;
+}
+
+.topbar{
+  position:absolute;
+  top:12px;
+  left:12px;
+  right:12px;
+  z-index:1000;
+}
+
+#search{
+  width:100%;
+  padding:14px 16px;
+  border:0;
+  border-radius:14px;
+  font-size:16px;
+  outline:none;
+  box-shadow:0 4px 18px rgba(0,0,0,.3);
+}
+
+.info-box{
+  position:absolute;
+  left:12px;
+  right:12px;
+  bottom:18px;
+  z-index:1000;
+  background:#fff;
+  border-radius:16px;
+  padding:16px;
+  box-shadow:0 4px 22px rgba(0,0,0,.35);
+  display:none;
+}
+
+.info-box h2{
+  margin:0 0 8px;
+}
+
+.info-box p{
+  margin:5px 0;
+}
+
+.btn{
+  margin-top:10px;
+  width:100%;
+  padding:12px;
+  border:0;
+  border-radius:10px;
+  font-size:15px;
+  cursor:pointer;
+}
+
+.country{
+  fill:#55a868;
+  fill-opacity:.65;
+  stroke:#ffffff;
+  stroke-width:1;
+}
+
+.country:hover{
+  fill-opacity:.9;
+}
+</style>
+</head>
+
+<body>
+
+<div class="topbar">
+  <input
+    id="search"
+    type="text"
+    placeholder="🌍 Country search करें और Enter दबाएँ..."
+  >
+</div>
+
+<div id="map"></div>
+
+<div id="info" class="info-box">
+  <h2 id="countryName">🌍 Country</h2>
+  <p id="countryCode"></p>
+  <p id="countryRegion"></p>
+  <button class="btn" onclick="closeInfo()">बंद करें</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+const map = L.map("map").setView([20, 0], 2);
+
+L.tileLayer(
+  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+  }
+).addTo(map);
+
+const info = document.getElementById("info");
+const countryName = document.getElementById("countryName");
+const countryCode = document.getElementById("countryCode");
+const countryRegion = document.getElementById("countryRegion");
+const search = document.getElementById("search");
+
+let worldLayer = null;
+let countriesData = [];
+
+/*
+  Real country GeoJSON
+  Source:
+  Natural Earth / GeoJSON collection
+*/
+const GEOJSON_URL =
+  "https://raw.githubusercontent.com/LonnyGomes/CountryGeoJSONCollection/master/countries.geojson";
+
+function showCountry(feature, layer){
+
+  const p = feature.properties || {};
+
+  const name =
+    p.name ||
+    p.NAME ||
+    p.ADMIN ||
+    p.country_name ||
+    "Unknown Country";
+
+  const code =
+    p.iso_a2 ||
+    p.ISO_A2 ||
+    p.country_code ||
+    "";
+
+  const region =
+    p.region ||
+    p.REGION_UN ||
+    p.continent ||
+    "";
+
+  layer.bindTooltip(name);
+
+  layer.on("click", function(){
+
+    countryName.textContent = "🌍 " + name;
+
+    countryCode.textContent =
+      code ? "ISO Code: " + code : "Country selected";
+
+    countryRegion.textContent =
+      region ? "Region: " + region : "";
+
+    info.style.display = "block";
+
+    layer.setStyle({
+      fillOpacity:0.95,
+      weight:2
+    });
+  });
+
+  layer.on("mouseover", function(){
+
+    layer.setStyle({
+      fillOpacity:0.95,
+      weight:2
+    });
+  });
+
+  layer.on("mouseout", function(){
+
+    if(worldLayer){
+      worldLayer.resetStyle(layer);
+    }
+  });
+}
+
+fetch(GEOJSON_URL)
+  .then(response => {
+    if(!response.ok){
+      throw new Error("GeoJSON load failed");
+    }
+    return response.json();
+  })
+  .then(data => {
+
+    countriesData = data.features || [];
+
+    worldLayer = L.geoJSON(data,{
+      style:{
+        fillColor:"#55a868",
+        fillOpacity:.65,
+        color:"#ffffff",
+        weight:1
+      },
+      onEachFeature:showCountry
+    }).addTo(map);
+
+    map.fitBounds(worldLayer.getBounds());
+
+  })
+  .catch(error => {
+
+    console.error(error);
+
+    alert(
+      "World country data load नहीं हुआ। Internet connection check करें."
+    );
+
+  });
+
+function closeInfo(){
+  info.style.display = "none";
+}
+
+search.addEventListener("keydown", function(event){
+
+  if(event.key !== "Enter"){
+    return;
+  }
+
+  const query =
+    search.value.trim().toLowerCase();
+
+  if(!query || !worldLayer){
+    return;
+  }
+
+  let found = null;
+
+  countriesData.forEach(feature => {
+
+    const p = feature.properties || {};
+
+    const possibleNames = [
+      p.name,
+      p.NAME,
+      p.ADMIN,
+      p.country_name,
+      p.sovereignt
+    ]
+    .filter(Boolean)
+    .map(x => String(x).toLowerCase());
+
+    if(!found){
+      for(const n of possibleNames){
+        if(n.includes(query)){
+          found = feature;
+          break;
+        }
+      }
+    }
+  });
+
+  if(!found){
+
+    alert("❌ Country नहीं मिली");
+    return;
+  }
+
+  const countryLayer =
+    L.geoJSON(found);
+
+  const bounds =
+    countryLayer.getBounds();
+
+  map.fitBounds(bounds, {
+    padding:[30,30]
+  });
+
+  const p = found.properties || {};
+
+  countryName.textContent =
+    "🌍 " +
+    (
+      p.name ||
+      p.NAME ||
+      p.ADMIN ||
+      p.country_name ||
+      "Country"
+    );
+
+  countryCode.textContent =
+    "ISO Code: " +
+    (
+      p.iso_a2 ||
+      p.ISO_A2 ||
+      p.country_code ||
+      "N/A"
+    );
+
+  countryRegion.textContent =
+    "Region: " +
+    (
+      p.region ||
+      p.REGION_UN ||
+      p.continent ||
+      "N/A"
+    );
+
+  info.style.display = "block";
+});
+
+</script>
+
+</body>
+</html>
